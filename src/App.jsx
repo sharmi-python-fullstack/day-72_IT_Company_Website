@@ -64,6 +64,19 @@ const initialFaqs = [
   },
 ]
 
+async function readApiResponse(response) {
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    await response.text()
+    throw new Error('The API did not return JSON. Run `npm run dev` to start the website and Gemini server together.')
+  }
+
+  try {
+    return await response.json()
+  } catch {
+    throw new Error('The API returned an invalid response. Restart `npm run dev` and try again.')
+  }
+}
+
 function App() {
   const [isChatbotOpen, setIsChatbotOpen] = useState(false)
   const [faqContent, setFaqContent] = useState([])
@@ -76,7 +89,7 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, previousInteractionId }),
     })
-    const result = await response.json()
+    const result = await readApiResponse(response)
 
     if (!response.ok) {
       throw new Error(result.error || 'The assistant could not respond. Please try again.')
@@ -95,7 +108,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       })
-      const result = await response.json()
+      const result = await readApiResponse(response)
 
       if (!response.ok) {
         throw new Error(result.error || 'FAQs could not be generated. Please try again.')
