@@ -1,10 +1,27 @@
 import { createServer } from 'node:http'
+import { readFile } from 'node:fs/promises'
+import { extname, resolve, sep } from 'node:path'
 
-const port = Number(process.env.API_PORT || 3001)
+const port = Number(process.env.PORT || process.env.API_PORT || 3001)
 const apiKey = process.env.GEMINI_API_KEY
 const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite'
 const maxBodyBytes = 16 * 1024
 const maxGeminiAttempts = 3
+const distDirectory = resolve(process.cwd(), 'dist')
+const contentTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -128,6 +145,11 @@ async function generateInteraction(input, { previousInteractionId, systemInstruc
 
 async function handleRequest(request, response) {
   const pathname = new URL(request.url, 'http://localhost').pathname
+  if (pathname === '/api/health' && request.method === 'GET') {
+    sendJson(response, 200, { status: 'ok' })
+    return
+  }
+
   if (!['/api/chat', '/api/faqs'].includes(pathname)) {
     sendJson(response, 404, { error: 'API route not found.' })
     return
@@ -222,15 +244,69 @@ async function handleRequest(request, response) {
   }
 }
 
+async function serveFrontend(request, response) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    response.setHeader('Allow', 'GET, HEAD')
+    sendJson(response, 405, { error: 'Method not allowed.' })
+    return
+  }
+
+  let pathname
+  try {
+    pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname)
+  } catch {
+    sendJson(response, 400, { error: 'Invalid URL path.' })
+    return
+  }
+
+  const filePath = pathname === '/'
+    ? resolve(distDirectory, 'index.html')
+    : resolve(distDirectory, `.${pathname}`)
+  if (filePath !== distDirectory && !filePath.startsWith(`${distDirectory}${sep}`)) {
+    sendJson(response, 400, { error: 'Invalid URL path.' })
+    return
+  }
+
+  let body
+  let resolvedFilePath = filePath
+  try {
+    body = await readFile(resolvedFilePath)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+
+    if (extname(pathname) || !request.headers.accept?.includes('text/html')) {
+      sendJson(response, 404, { error: 'Page not found.' })
+      return
+    }
+
+    resolvedFilePath = resolve(distDirectory, 'index.html')
+    body = await readFile(resolvedFilePath)
+  }
+
+  const headers = {
+    'Content-Type': contentTypes[extname(resolvedFilePath)] || 'application/octet-stream',
+    'Cache-Control': resolvedFilePath === resolve(distDirectory, 'index.html')
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable',
+  }
+  response.writeHead(200, headers)
+  response.end(request.method === 'HEAD' ? undefined : body)
+}
+
 createServer((request, response) => {
-  handleRequest(request, response).catch((error) => {
-    console.error('Unexpected API server error:', error)
+  const pathname = new URL(request.url, 'http://localhost').pathname
+  const handler = pathname.startsWith('/api/')
+    ? handleRequest(request, response)
+    : serveFrontend(request, response)
+
+  handler.catch((error) => {
+    console.error('Unexpected server error:', error)
     if (!response.headersSent) {
       sendJson(response, 500, { error: 'An unexpected server error occurred.' })
     } else {
       response.destroy(error)
     }
   })
-}).listen(port, '127.0.0.1', () => {
-  console.log(`Gemini API server listening at http://127.0.0.1:${port}`)
+}).listen(port, '0.0.0.0', () => {
+  console.log(`Nexora website and Gemini API listening on port ${port}`)
 })

@@ -22,3 +22,13 @@ This starts the Vite website and the API server together. Open the local URL pri
 npm run lint
 npm run build
 ```
+
+## Deploy to Render
+
+1. Push this project to a GitHub repository. Do not commit `.env`; it is ignored by Git.
+2. In Render, choose **New +** → **Blueprint** and connect the repository containing `render.yaml`.
+3. Before creating the service, enter your Gemini API key when Render prompts for `GEMINI_API_KEY`. You can also add or update it later under the service's **Environment** settings.
+4. Deploy the `nexora-it-company` web service. Render runs `npm ci && npm run build`, then `npm start`.
+5. Open the Render URL and test the website, chatbot, and FAQ generator. The `/api/health` endpoint is used for Render health checks.
+
+The Node server serves both the built Vite frontend and `/api` routes from the same Render service. Keep the Gemini key in Render's environment settings, never in frontend code or Git.
